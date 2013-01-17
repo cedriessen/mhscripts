@@ -1,0 +1,11 @@
+.git/
+target/
+.svn/
+*.iml
+*.ipr
+*.iws
+*.ids
+*.patch
+rebel.xml
+.DS_Store
+.gitignore

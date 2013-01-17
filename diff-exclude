@@ -1,0 +1,12 @@
+*.class
+*.iml
+*.ipr
+*.ids
+*.iws
+*.orig
+rebel.xml
+.DS_Store
+.git
+.svn
+.idea
+target

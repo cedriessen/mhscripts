@@ -1,0 +1,9 @@
+if [ -z $MH_HOME ] ; then
+  echo "MH_HOME not set"
+  exit 1
+fi 
+MH_DEV=$MH_HOME/matterhorn
+MH_VERSIONS=$MH_HOME/versions
+echo "    MH_HOME=$MH_HOME"
+echo "     MH_DEV=$MH_DEV"
+echo "MH_VERSIONS=$MH_VERSIONS"
