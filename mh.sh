@@ -1,4 +1,5 @@
 #!/bin/sh
+# built with Scala 2.9.2
 exec scala -save -deprecation "$0" "$@"
 !#
 import java.io.File
@@ -35,6 +36,7 @@ object Deploy {
     // dispatch commands
 		val result: Either[Any, Any] = opts.command match {
 			case Some("deploy") => cmdDeploy(opts)
+			case Some("test") => cmdIntegrationTest(opts)
 			case Some("jrebel") => cmdJrebel(opts)
 			case Some(x) => ErrParam(x + " is an unknown command").fail
 			case _ => ErrParam("Please provide a command").fail
@@ -116,10 +118,13 @@ object Deploy {
 	}
 
 	/** Handle command "jrebel". */
-	def cmdJrebel(opts: Opts) = {
-		val mvn = "mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true"
-		processInDev(mvn) ! ProcessLogger(a => println(a)) |> handleExitValue
-	}
+	def cmdJrebel(opts: Opts) = runInDevSimple("mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true")
+	
+	/** Handle command "test" (integration testing). */
+	def cmdIntegrationTest(opts: Opts) = runInDevSimple("mvn -Ptest -Dharness=server")
+	
+	/** Run `cmd` in development directory, print all its output to the console and return the exit value. */
+	def runInDevSimple(cmd: String): Either[Err, Int] = processInDev(cmd) ! ProcessLogger(a => println(a)) |> handleExitValue
 
 	val handleExitValue: Int => Either[Err, Int] = {
 		case 0 => 0.success
@@ -201,7 +206,13 @@ object Deploy {
 		clean: Boolean = false,
 		version: Option[String] = None)
 		
-	def help = """<deploy> -v <version> [-m <module>,...] [-p <mvn_params>] [--nocheck /* no checkstyle */] [--notest /* no tests */] [-c /* clean */]"""
+	def help = """deploy -v <version> 
+	             |      [-m <module>,...]  // modules, comma separated list
+	             |      [-p <mvn_params>]  // mvn parameters
+	             |      [--nocheck]        // no checkstyle
+	             |      [--notest]         // no unit tests 
+	             |      [-c]               // clean
+	             |test                     // run server integration test""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
     cmdline match {
