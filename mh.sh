@@ -97,6 +97,9 @@ object Deploy {
 				case TestError(module) =>
 					println("[TEST FAILED] " + line)
 					false
+				case MavenResume(module) =>
+					println("Resume with " + mvn + " -rf :" + module)
+					false
 				case _ => 
 					println(line)
 					true
@@ -175,6 +178,7 @@ object Deploy {
 	
 	val CheckstyleError = """\[ERROR\].*?on project (.*?): Failed during checkstyle execution.*""".r
 	val TestError = """\[ERROR\].*?on project (.*?): There are test failures.*""".r
+	val MavenResume = """\[ERROR\].*?mvn <goals> -rf :(.*?)""".r
 	
 	def printCheckstyle(module: String) {
 		println("[CHECKSTYLE ERROR] " + module)
@@ -263,7 +267,8 @@ object ProcessImplicits {
 		def processLines(f: String => Boolean): Int = {
 			var ok = false
 			def scan(in: InputStream) {
-				ok = (true /: Source.fromInputStream(in).getLines)((ok, line) => ok && f.apply(line))
+				// apply f first since && is lazy but we want to handle _all_ lines even if a previous line contained an error
+				ok = (true /: Source.fromInputStream(in).getLines)((ok, line) => f(line) && ok)
 				in.close()
 			}
 			val exit = p.run(new ProcessIO(_.close(), scan, _.close())).exitValue						
