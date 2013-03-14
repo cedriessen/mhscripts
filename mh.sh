@@ -1,5 +1,5 @@
 #!/bin/sh
-# built with Scala 2.9.2
+# developed with Scala 2.9.2
 exec scala -save -deprecation "$0" "$@"
 !#
 import java.io.File
@@ -36,6 +36,7 @@ object Deploy {
     // dispatch commands
 		val result: Either[Any, Any] = opts.command match {
 			case Some("deploy") => cmdDeploy(opts)
+			case Some("allprofiles") => cmdBuildAllProfiles(opts)
 			case Some("test") => cmdIntegrationTest(opts)
 			case Some("jrebel") => cmdJrebel(opts)
 			case Some(x) => ErrParam(x + " is an unknown command").fail
@@ -89,31 +90,16 @@ object Deploy {
 			println(<s>     opts: {opts}
 								|   config: {cfg}
 								|executing: {mvn}</s>.text.stripMargin)
-			// scan process output					
-			def scan(line: String) = line match {
-				case CheckstyleError(module) => 
-					printCheckstyle(module)
-					false
-				case TestError(module) =>
-					println("[TEST FAILED] " + line)
-					false
-				case MavenResume(module) =>
-					println("Resume with " + mvn + " -rf :" + module)
-					false
-				case _ => 
-					println(line)
-					true
-			}
 			// run maven
 			opts.modules match {
 			  case Nil => // no modules -> deploy all
 					println(<s>Full deployment of branch {branch} to {cfg.baseDir} with flavor {cfg.flavor}</s>.text)
-					processInDev(mvn).processLines(scan) |> handleExitValue
+					runInDevHandled(mvn)
 				case modules => 
 					println(<s>Deploying modules {modules.mkString(", ")} of branch {branch} to {cfg.baseDir} with flavor {cfg.flavor}</s>.text)
 					val result = for (module <- modules) 
 						yield for (moduleDir <- safeFile(mhDev + "/modules/" + module))
-							yield Process(mvn, moduleDir).processLines(scan)
+							yield Process(mvn, moduleDir).processLines(handleMvnOut)
 					// todo inspect result and return the appropriate type .fail or .success 		
 					result.success		
 			}
@@ -125,10 +111,48 @@ object Deploy {
 	
 	/** Handle command "test" (integration testing). */
 	def cmdIntegrationTest(opts: Opts) = runInDevSimple("mvn -Ptest -Dharness=server")
+
+  /** Handle command "allprofiles". */
+	def cmdBuildAllProfiles(opts: Opts) = {
+	  val profiles = for {
+	    line <- processInDev("mvn help:all-profiles").lines
+	    if line.contains("Profile Id") && !line.contains("test") && !line.contains("capture")
+	  } yield
+      line.split("""\s+""")(3)
+    import CmdLineBuilder._
+    val mvn: CmdLine = ("mvn"
+      ++? (opts.clean, "clean") +++ "install"
+      +++ ("-P" + profiles.distinct.mkString(","))
+      +++ opts.additionalOpts)
+    println("executing: " + mvn)
+    runInDevHandled(mvn)
+	}
+
+	//
+
+  /** Handle maven process output. */
+  def handleMvnOut(line: String) = line match {
+    case CheckstyleError(module) =>
+      printCheckstyle(module)
+      false
+    case TestError(module) =>
+      println("[TEST FAILED] " + line)
+      false
+    case MavenResume(module) =>
+      println("Resume with -rf :" + module)
+      false
+    case _ =>
+      println(line)
+      true
+  }
+
+  /** Run `cmd` in development directory using handler `f` to process the output. */
+  def runInDevHandled(cmd: String) = processInDev(cmd).processLines(handleMvnOut) |> handleExitValue
 	
 	/** Run `cmd` in development directory, print all its output to the console and return the exit value. */
 	def runInDevSimple(cmd: String): Either[Err, Int] = processInDev(cmd) ! ProcessLogger(a => println(a)) |> handleExitValue
 
+  /** Turn the exit value of a process into an either. */
 	val handleExitValue: Int => Either[Err, Int] = {
 		case 0 => 0.success
 		case a => ErrExec(a.toString).fail
@@ -199,8 +223,6 @@ object Deploy {
 		}
 	}
 
-
-	
 	case class Opts(
 		command: Option[String] = None,
 		modules: List[String] = Nil,
@@ -210,13 +232,20 @@ object Deploy {
 		clean: Boolean = false,
 		version: Option[String] = None)
 		
-	def help = """deploy -v <version> 
-	             |      [-m <module>,...]  // modules, comma separated list
-	             |      [-p <mvn_params>]  // mvn parameters
-	             |      [--nocheck]        // no checkstyle
-	             |      [--notest]         // no unit tests 
-	             |      [-c]               // clean
-	             |test                     // run server integration test""".stripMargin
+	def help = """deploy               build and deploy
+	             |  -v <version>       target dir name
+	             |  [-m <module>,...]  modules, comma separated list
+	             |  [-p <mvn_params>]  additional mvn parameters
+	             |  [--nocheck]        no checkstyle
+	             |  [--notest]         no unit tests
+	             |  [-c]               clean
+	             |
+	             |test                 run server integration test
+	             |
+	             |allprofiles          build all profiles without deployment
+	             |  [-c]               clean
+	             |  [-p <mvn_params>]  additional mvn parameters
+	             |""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
     cmdline match {
