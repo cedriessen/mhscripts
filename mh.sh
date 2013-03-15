@@ -33,6 +33,9 @@ object Deploy {
   def main(args: Array[String]) {
 		val startTime = System.currentTimeMillis()
     val opts = parseCmdLine(Opts(), args.toList)
+    // print some environment info
+    println(<s>mhVersions: {mhVersions}
+              |     mhDev: {mhDev}</s>.text.stripMargin)
     // dispatch commands
 		val result: Either[Any, Any] = opts.command match {
 			case Some("deploy") => cmdDeploy(opts)
