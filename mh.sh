@@ -248,6 +248,8 @@ object Deploy {
 	             |allprofiles          build all profiles without deployment
 	             |  [-c]               clean
 	             |  [-p <mvn_params>]  additional mvn parameters
+							 |
+							 |jrebel               generate rebel.xml for each module
 	             |""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
