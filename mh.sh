@@ -110,28 +110,32 @@ object Deploy {
 	}
 
 	/** Handle command "jrebel". */
-	def cmdJrebel(opts: Opts) = runInDevSimple("mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true")
+	def cmdJrebel(opts: Opts) = runInDevSimple("mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true " + allProfilesAsMvnArg)
 	
 	/** Handle command "test" (integration testing). */
 	def cmdIntegrationTest(opts: Opts) = runInDevSimple("mvn -Ptest -Dharness=server")
 
   /** Handle command "allprofiles". */
 	def cmdBuildAllProfiles(opts: Opts) = {
-	  val profiles = for {
-	    line <- processInDev("mvn help:all-profiles").lines
-	    if line.contains("Profile Id") && !line.contains("test") && !line.contains("capture")
-	  } yield
-      line.split("""\s+""")(3)
     import CmdLineBuilder._
     val mvn: CmdLine = ("mvn"
       ++? (opts.clean, "clean") +++ "install"
-      +++ ("-P" + profiles.distinct.mkString(","))
+      +++ allProfilesAsMvnArg
       +++ opts.additionalOpts)
     println("executing: " + mvn)
     runInDevHandled(mvn)
 	}
 
 	//
+	
+	/** Get a list of all maven profiles. */
+	def allProfiles = (for {
+    line <- processInDev("mvn help:all-profiles").lines
+    if line.contains("Profile Id") && !line.contains("test") && !line.contains("capture")
+  } yield
+    line.split("""\s+""")(3)).distinct
+
+	def allProfilesAsMvnArg = "-P" + allProfiles.mkString(",")
 
   /** Handle maven process output. */
   def handleMvnOut(line: String) = line match {
@@ -249,7 +253,7 @@ object Deploy {
 	             |  [-c]               clean
 	             |  [-p <mvn_params>]  additional mvn parameters
 							 |
-							 |jrebel               generate rebel.xml for each module
+							 |jrebel               generate rebel.xml for each module of the project
 	             |""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
