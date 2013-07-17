@@ -17,6 +17,7 @@ object Deploy {
 	val mhHome = "/Users/ced/dev/matterhorn"
 	val mhVersions = mhHome + "/versions"
 	val mhDev = mhHome + "/matterhorn"
+	val mhDevFile = new File(mhDev)
 	val versionCfgFile = "version.cfg"
 	
 	sealed trait Flavor
@@ -71,8 +72,9 @@ object Deploy {
 		} yield 
 			versionCfg
 		// get the current branch name
-		val branch = Process("git branch", new File(mhDev)).lines.filter(_.startsWith("*")).head.drop(2)		
-		val commit = Process("git rev-parse --short head", new File(mhDev)).lines.head.trim
+		val branch = Process("git branch", mhDevFile).lines.filter(_.startsWith("*")).head.drop(2)		
+		val commit = Process("git rev-parse --short head", mhDevFile).lines.head.trim
+		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile).lines.head.trim
 		// run maven
 		for (cfg <- versionCfg) yield {
 			val deployTo = cfg.flavor match {
@@ -88,6 +90,7 @@ object Deploy {
 				++? (!opts.checkStyle, "-Dcheckstyle.skip=true")
 				+++ ("-DdeployTo=" + deployTo)
 				+++ ("-Dbuild.number=" + commit)
+				+++ ("-Dmh.db.version=" + dbVersion)
         +++ opts.additionalOpts
 				+++ cfg.mvnOpts)
 			println(<s>     opts: {opts}
