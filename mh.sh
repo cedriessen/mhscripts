@@ -74,7 +74,9 @@ object Deploy {
 		// get the current branch name
 		val branch = Process("git branch", mhDevFile).lines.filter(_.startsWith("*")).head.drop(2)		
 		val commit = Process("git rev-parse --short head", mhDevFile).lines.head.trim
-		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile).lines.head.trim
+		// get the current db version or use "?"
+		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile)
+		  .lines.headOption.map(_.trim).getOrElse("?")
 		// run maven
 		for (cfg <- versionCfg) yield {
 			val deployTo = cfg.flavor match {
