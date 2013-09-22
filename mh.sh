@@ -1,6 +1,7 @@
 #!/bin/sh
 # developed with Scala 2.9.2
-exec scala -save -deprecation "$0" "$@"
+# updated to run under Scala 2.10.2
+exec scala -feature -language:implicitConversions -save -deprecation "$0" "$@"
 !#
 import java.io.File
 import java.io.InputStream
@@ -8,6 +9,7 @@ import scala.io.Source
 import scala.sys.process._
 import scala.xml.NodeSeq
 import scala.xml.XML
+import scala.util._
 
 object Deploy {
 	import EitherImplicits._
@@ -178,7 +180,7 @@ object Deploy {
 		try {
 			Source.fromFile(flavorDir + "/flavor.mh").getLines.take(1).toList.headOption
 		} catch {
-			case _ => None
+			case _: Throwable => None
 		}
 	}
 	
@@ -196,7 +198,7 @@ object Deploy {
 		val cfgFile = try {
 			XML.loadFile(versionDir + "/" + versionCfgFile).success
 		} catch {
-			case _ => ErrCfg("Please provide a " + versionCfgFile).fail
+			case _: Throwable => ErrCfg("Please provide a " + versionCfgFile).fail
 		}
 		for {
 			cfg <- cfgFile.right
