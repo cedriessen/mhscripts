@@ -16,9 +16,11 @@ object Deploy {
 	import ProcessImplicits._
 	import Pipe._
 	
-	val mhHome = "/Users/ced/dev/matterhorn"
+//	val mhHome = "/Users/ced/dev/matterhorn"
+	val mhHome = "/Volumes/Matterhorn"
 	val mhVersions = mhHome + "/versions"
-	val mhDev = mhHome + "/matterhorn"
+//	val mhDev = mhHome + "/matterhorn"
+	val mhHome = "/Users/ced/dev/matterhorn"
 	val mhDevFile = new File(mhDev)
 	val versionCfgFile = "version.cfg"
 	
@@ -250,8 +252,8 @@ object Deploy {
 	             |  -v <version>       target dir name
 	             |  [-m <module>,...]  modules, comma separated list
 	             |  [-p <mvn_params>]  additional mvn parameters
-	             |  [--nocheck]        no checkstyle
-	             |  [--notest]         no unit tests
+	             |  [--nocheck|-C]     no checkstyle
+	             |  [--notest|-T]      no unit tests
 	             |  [-c]               clean
 	             |
 	             |test                 run server integration test
@@ -269,9 +271,9 @@ object Deploy {
         parseCmdLine(opts.copy(modules = modules.split(",").toList), xs)
       case "-p" :: additionalOpts :: xs => 
         parseCmdLine(opts.copy(additionalOpts = Some(additionalOpts)), xs)
-		  case "--nocheck" :: xs =>
+		  case ("--nocheck" | "-C") :: xs =>
 				parseCmdLine(opts.copy(checkStyle = false), xs)
-		  case "--notest" :: xs =>
+		  case ("--notest" | "-T") :: xs =>
 				parseCmdLine(opts.copy(test = false), xs)
       case "-v" :: version :: xs =>
         parseCmdLine(opts.copy(version = Some(version)), xs)
