@@ -20,7 +20,7 @@ object Deploy {
 	val mhHome = "/Volumes/Matterhorn"
 	val mhVersions = mhHome + "/versions"
 //	val mhDev = mhHome + "/matterhorn"
-	val mhHome = "/Users/ced/dev/matterhorn"
+	val mhDev = "/Users/ced/dev/matterhorn/matterhorn"
 	val mhDevFile = new File(mhDev)
 	val versionCfgFile = "version.cfg"
 	
