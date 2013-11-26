@@ -15,25 +15,37 @@ object Deploy {
 	import EitherImplicits._
 	import ProcessImplicits._
 	import Pipe._
+	import Trial._
 	
-//	val mhHome = "/Users/ced/dev/matterhorn"
-	val mhHome = "/Volumes/Matterhorn"
+	/* Base config 
+	 * ----------- */
+	
+	val mhHome = "/Users/ced/dev/mh"
 	val mhVersions = mhHome + "/versions"
-//	val mhDev = mhHome + "/matterhorn"
-	val mhDev = "/Users/ced/dev/matterhorn/matterhorn"
+	val mhDev = mhHome + "/matterhorn"
 	val mhDevFile = new File(mhDev)
 	val versionCfgFile = "version.cfg"
+	
+	/* Types 
+	 * ----- */
 	
 	sealed trait Flavor
 	final case object V14 extends Flavor
 	final case object V13 extends Flavor
 		
-	sealed abstract class Err(msg: String)
-	final case class ErrParam(msg: String) extends Err(msg)
-  final case class ErrExec(msg: String) extends Err(msg) 
-  final case class ErrCfg(msg: String) extends Err(msg) 
+	sealed abstract class Err(val msg: String)
+	final case class ErrParam(override val msg: String) extends Err(msg)
+  final case class ErrExec(override val msg: String) extends Err(msg) 
+  final case class ErrCfg(override val msg: String) extends Err(msg) 
 
-	case class VersionCfg(flavor: Flavor, baseDir: String, mvnOpts: Option[String])
+	case class VersionCfg(flavor: Flavor, baseDir: String, mvnOpts: Option[String]) {
+		def ofFlavor(flv: Flavor): Option[VersionCfg] = Some(this) filter (_.flavor == flv)
+	}
+		
+	type Valid[A] = Either[Err, A]
+		
+	/* Main code 
+	 * --------- */
 
   def main(args: Array[String]) {
 		val startTime = System.currentTimeMillis()
@@ -42,12 +54,14 @@ object Deploy {
     println(<s>mhVersions: {mhVersions}
               |     mhDev: {mhDev}</s>.text.stripMargin)
     // dispatch commands
-		val result: Either[Any, Any] = opts.command match {
+		val result: Valid[Any] = opts.command match {
 			case Some("deploy") => cmdDeploy(opts)
 			case Some("allprofiles") => cmdBuildAllProfiles(opts)
 			case Some("test") => cmdIntegrationTest(opts)
 			case Some("jrebel") => cmdJrebel(opts)
-			case Some(x) => ErrParam(x + " is an unknown command").fail
+			case Some("javadoc") => cmdJavadoc(opts)
+		  case Some("deployconfig") => cmdDeployConfig(opts)
+			case Some(x) => ErrParam(s"$x is an unknown command").fail
 			case _ => ErrParam("Please provide a command").fail
 		}
 		// print the results
@@ -56,25 +70,16 @@ object Deploy {
 				println(a)
 				println(help)
 			case Left(a) =>
-				println(a)
+				println(a.msg)
 			case _ => 	
 				val millis = System.currentTimeMillis() - startTime		
-				println(<s>
-				          |result: {result}
-									|  time: {if (millis > 60000) "%.2f min".format(millis / 60000.0) else "%d sec".format(millis / 1000)}
-								  |</s>.text.stripMargin)
+				println(s"""result: $result
+				 					 |  time: ${if (millis > 60000) "%.2f min".format(millis / 60000.0) else "%d sec".format(millis / 1000)}""".stripMargin)
 	  }
   }
 
 	/** Handle command "deploy". */
 	def cmdDeploy(opts: Opts) = {
-		// calc flavor and version directory
-		def versionCfg: Either[Err, VersionCfg] = for {
-			version <- opts.version toRight ErrParam("Please provide a version")
-			mhVersionDir = mhVersions + "/" + version
-			versionCfg <- loadVersionCfg(mhVersionDir)
-		} yield 
-			versionCfg
 		// get the current branch name
 		val branch = Process("git branch", mhDevFile).lines.filter(_.startsWith("*")).head.drop(2)		
 		val commit = Process("git rev-parse --short head", mhDevFile).lines.head.trim
@@ -82,21 +87,21 @@ object Deploy {
 		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile)
 		  .lines.headOption.map(_.trim).getOrElse("?")
 		// run maven
-		for (cfg <- versionCfg) yield {
+		for (cfg <- loadVersionCfg(opts)) yield {
 			val deployTo = cfg.flavor match {
-				case V14 => cfg.baseDir + "/felix"
-				case V13 => cfg.baseDir + "/felix/matterhorn"
+				case V14 => s"${cfg.baseDir}/felix"
+				case V13 => s"${cfg.baseDir}/felix/matterhorn"
 			}
 			// create maven command line
 			import CmdLineBuilder._
 			val mvn: CmdLine = ("mvn"
 				++? (opts.clean, "clean")
 				+++ "install" 
-				++? (!opts.test, "-Dmaven.test.skip=true")
-				++? (!opts.checkStyle, "-Dcheckstyle.skip=true")
-				+++ ("-DdeployTo=" + deployTo)
-				+++ ("-Dbuild.number=" + commit)
-				+++ ("-Dmh.db.version=" + dbVersion)
+				+++ mvnOptTest(opts.test)
+				+++ mvnOptCheckstyle(opts.checkStyle)
+				+++ (s"-DdeployTo=$deployTo")
+				+++ (s"-Dbuild.number=$commit")
+				+++ (s"-Dmh.db.version=$dbVersion")
         +++ opts.additionalOpts
 				+++ cfg.mvnOpts)
 			println(<s>     opts: {opts}
@@ -105,12 +110,12 @@ object Deploy {
 			// run maven
 			opts.modules match {
 			  case Nil => // no modules -> deploy all
-					println(<s>Full deployment of branch {branch} to {cfg.baseDir} with flavor {cfg.flavor}</s>.text)
+					println(s"Full deployment of branch $branch to ${cfg.baseDir} with flavor ${cfg.flavor}")
 					runInDevHandled(mvn)
 				case modules => 
 					println(<s>Deploying modules {modules.mkString(", ")} of branch {branch} to {cfg.baseDir} with flavor {cfg.flavor}</s>.text)
 					val result = for (module <- modules) 
-						yield for (moduleDir <- safeFile(mhDev + "/modules/" + module))
+						yield for (moduleDir <- safeFile(s"$mhDev/modules/$module"))
 							yield Process(mvn, moduleDir).processLines(handleMvnOut)
 					// todo inspect result and return the appropriate type .fail or .success 		
 					result.success		
@@ -119,7 +124,7 @@ object Deploy {
 	}
 
 	/** Handle command "jrebel". */
-	def cmdJrebel(opts: Opts) = runInDevSimple("mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true " + allProfilesAsMvnArg)
+	def cmdJrebel(opts: Opts) = runInDevSimple(s"mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true $allProfilesAsMvnArg")
 	
 	/** Handle command "test" (integration testing). */
 	def cmdIntegrationTest(opts: Opts) = runInDevSimple("mvn -Ptest -Dharness=server")
@@ -128,14 +133,36 @@ object Deploy {
 	def cmdBuildAllProfiles(opts: Opts) = {
     import CmdLineBuilder._
     val mvn: CmdLine = ("mvn"
-      ++? (opts.clean, "clean") +++ "install"
+      ++? (opts.clean, "clean") 
+			+++ "install"
+			+++ mvnOptCheckstyle(opts.checkStyle)
+			+++ mvnOptTest(opts.test)
       +++ allProfilesAsMvnArg
       +++ opts.additionalOpts)
     println("executing: " + mvn)
     runInDevHandled(mvn)
 	}
+	
+	/** Handle command "javadoc". */
+	def cmdJavadoc(opts: Opts) = runInDevSimple(s"mvn javadoc:javadoc ${mvnOptCheckstyle(false)}")
+	
+	// todo
+	def cmdDeployConfig(opts: Opts) = 
+		for { 
+			cfg_ <- loadVersionCfg(opts);
+			cfg <- (cfg_ ofFlavor V14) failed ErrCfg(s"Version config $cfg_ does not have the required flavor $V14")
+			_ = println(s"Copy config $mhDev -> ${cfg.baseDir}/felix/")
+			_ <- runInDevSimple(s"cp -R $mhDev/etc/ ${cfg.baseDir}/felix/etc/")
+			cp2 <- runInDevSimple(s"cp -R $mhDev/bin/ ${cfg.baseDir}/felix/bin/")
+		} yield
+			cp2
 
-	//
+	/* Helper functions
+	 * ---------------- */
+	
+	def mvnOptCheckstyle(enable: Boolean) = s"-Dcheckstyle.skip=${!enable}"
+	
+	def mvnOptTest(enable: Boolean) = s"-Dmaven.test.skip=${!enable}"
 	
 	/** Get a list of all maven profiles. */
 	def allProfiles = (for {
@@ -163,13 +190,13 @@ object Deploy {
   }
 
   /** Run `cmd` in development directory using handler `f` to process the output. */
-  def runInDevHandled(cmd: String) = processInDev(cmd).processLines(handleMvnOut) |> handleExitValue
+  def runInDevHandled(cmd: String): Valid[Int] = processInDev(cmd).processLines(handleMvnOut) |> handleExitValue
 	
 	/** Run `cmd` in development directory, print all its output to the console and return the exit value. */
-	def runInDevSimple(cmd: String): Either[Err, Int] = processInDev(cmd) ! ProcessLogger(a => println(a)) |> handleExitValue
+	def runInDevSimple(cmd: String): Valid[Int] = processInDev(cmd) ! ProcessLogger(a => println(a)) |> handleExitValue
 
   /** Turn the exit value of a process into an either. */
-	val handleExitValue: Int => Either[Err, Int] = {
+	val handleExitValue: Int => Valid[Int] = {
 		case 0 => 0.success
 		case a => ErrExec(a.toString).fail
 	}
@@ -178,16 +205,18 @@ object Deploy {
 	def processInDev(cmd: String) = Process(cmd, new File(mhDev))
 
 	/** Load the MH installation flavor. */
-	def loadFlavor(flavorDir: String): Option[String] = {
-		try {
-			Source.fromFile(flavorDir + "/flavor.mh").getLines.take(1).toList.headOption
-		} catch {
-			case _: Throwable => None
-		}
-	}
+	def loadFlavor(flavorDir: String): Option[String] = 
+		Source.fromFile(s"$flavorDir/flavor.mh").getLines.take(1).toList.headOption.tryOption.flatten
+	
+	def loadVersionCfg(opts: Opts): Valid[VersionCfg] = for {
+		version <- opts.version failed ErrParam("Please provide a version")
+		mhVersionDir = mhVersions + "/" + version
+		versionCfg <- loadVersionCfg(mhVersionDir)
+	} yield 
+		versionCfg
 	
 	/** Load and parse the config for the selected version. */
-	def loadVersionCfg(versionDir: String): Either[Err, VersionCfg] = {
+	def loadVersionCfg(versionDir: String): Valid[VersionCfg] = {
 		def opt(ns: NodeSeq): Option[String] = ns.text.trim match {
 			case "" => None
 			case x => Some(x)
@@ -203,8 +232,8 @@ object Deploy {
 			case _: Throwable => ErrCfg("Please provide a " + versionCfgFile).fail
 		}
 		for {
-			cfg <- cfgFile.right
-			flavorString <- opt(cfg \\ "flavor") toRight ErrCfg("Please provide a flavor")
+			cfg <- cfgFile
+			flavorString <- opt(cfg \\ "flavor") failed ErrCfg("Please provide a flavor")
 			flavor <- toFlavor(flavorString)
 		} yield
 			VersionCfg(flavor, versionDir, opt(cfg \\ "mvn-opts"))
@@ -238,7 +267,7 @@ object Deploy {
 			}
 		}
 	}
-
+	
 	case class Opts(
 		command: Option[String] = None,
 		modules: List[String] = Nil,
@@ -261,8 +290,12 @@ object Deploy {
 	             |allprofiles          build all profiles without deployment
 	             |  [-c]               clean
 	             |  [-p <mvn_params>]  additional mvn parameters
+	             |  [--nocheck|-C]     no checkstyle
+	             |  [--notest|-T]      no unit tests							 
 							 |
 							 |jrebel               generate rebel.xml for each module of the project
+							 |javadoc							 generate javadoc
+							 |deployconfig				 copy 1.4 config from development to deployment directory
 	             |""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
@@ -335,6 +368,10 @@ object EitherImplicits {
 		def success = Right(b)
 	}
 	
+	final class OptionFailed[A](a: Option[A]) {
+		def failed[B](left: => B) = a.toRight(left)
+	} 
+	
 	final class OptionToEither
 	
 	implicit def _Any_Left[A](a: A): ToLeft[A] = new ToLeft(a)	
@@ -342,6 +379,8 @@ object EitherImplicits {
 	implicit def _Any_Right[B](b: B): ToRight[B] = new ToRight(b)
 	
 	implicit def _Either_RightProjection[A, B](a: Either[A, B]): Either.RightProjection[A, B] = a.right
+	
+	implicit def _Option_OptionFailed[A](a: Option[A]): OptionFailed[A] = new OptionFailed(a)
 	
 	def test() {
 		val s: Either[String, Int] = 1.success
@@ -358,10 +397,22 @@ object EitherImplicits {
 }
 
 object Pipe {
-	class Pipe[A](a: A) {
+	final class Pipe[A](a: A) {
     def |>[B](f: A => B): B = f(a)
   }
   implicit def _Any_Pipe[A](a: A): Pipe[A] = new Pipe(a)
+}
+
+object Trial {
+	final class TryIt[A](a: => A) {
+		def tryOption: Option[A] = try {
+			Some(a)
+		} catch {
+			case _: Throwable => None
+		}
+	}
+	
+	implicit def _Any_TryIt[A](a: => A): TryIt[A] = new TryIt(a)
 }
 
 Deploy.main(args)
