@@ -294,8 +294,8 @@ object Deploy {
 	             |  [--notest|-T]      no unit tests							 
 							 |
 							 |jrebel               generate rebel.xml for each module of the project
-							 |javadoc							 generate javadoc
-							 |deployconfig				 copy 1.4 config from development to deployment directory
+							 |javadoc              generate javadoc
+							 |deployconfig         copy 1.4 config from development to deployment directory
 	             |""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
