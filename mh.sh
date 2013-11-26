@@ -97,8 +97,8 @@ object Deploy {
 			val mvn: CmdLine = ("mvn"
 				++? (opts.clean, "clean")
 				+++ "install" 
-				+++ mvnOptTest(opts.test)
-				+++ mvnOptCheckstyle(opts.checkStyle)
+				+++ (opts.test map mvnOptTest)
+				+++ (opts.checkStyle map mvnOptCheckstyle)
 				+++ (s"-DdeployTo=$deployTo")
 				+++ (s"-Dbuild.number=$commit")
 				+++ (s"-Dmh.db.version=$dbVersion")
@@ -135,8 +135,8 @@ object Deploy {
     val mvn: CmdLine = ("mvn"
       ++? (opts.clean, "clean") 
 			+++ "install"
-			+++ mvnOptCheckstyle(opts.checkStyle)
-			+++ mvnOptTest(opts.test)
+			+++ (opts.checkStyle map mvnOptCheckstyle)
+			+++ (opts.test map mvnOptTest)
       +++ allProfilesAsMvnArg
       +++ opts.additionalOpts)
     println("executing: " + mvn)
@@ -272,8 +272,8 @@ object Deploy {
 		command: Option[String] = None,
 		modules: List[String] = Nil,
 		additionalOpts: Option[String] = None,
-		checkStyle: Boolean = true,
-		test: Boolean = true,
+		checkStyle: Option[Boolean] = None,
+		test:Option[Boolean] = None,
 		clean: Boolean = false,
 		version: Option[String] = None)
 		
@@ -305,9 +305,9 @@ object Deploy {
       case "-p" :: additionalOpts :: xs => 
         parseCmdLine(opts.copy(additionalOpts = Some(additionalOpts)), xs)
 		  case ("--nocheck" | "-C") :: xs =>
-				parseCmdLine(opts.copy(checkStyle = false), xs)
+				parseCmdLine(opts.copy(checkStyle = Some(false)), xs)
 		  case ("--notest" | "-T") :: xs =>
-				parseCmdLine(opts.copy(test = false), xs)
+				parseCmdLine(opts.copy(test = Some(false)), xs)
       case "-v" :: version :: xs =>
         parseCmdLine(opts.copy(version = Some(version)), xs)
 			case "-c" :: xs =>
