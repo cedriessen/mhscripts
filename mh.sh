@@ -61,6 +61,7 @@ object Deploy {
 			case Some("jrebel") => cmdJrebel(opts)
 			case Some("javadoc") => cmdJavadoc(opts)
 		  case Some("deployconfig") => cmdDeployConfig(opts)
+      case Some("lastmodified") => cmdLastModified(opts)
 			case Some(x) => ErrParam(s"$x is an unknown command").fail
 			case _ => ErrParam("Please provide a command").fail
 		}
@@ -111,14 +112,16 @@ object Deploy {
 			opts.modules match {
 			  case Nil => // no modules -> deploy all
 					println(s"Full deployment of branch $branch to ${cfg.baseDir} with flavor ${cfg.flavor}")
-					runInDevHandled(mvn)
+					runInDevHandled(mvn)(handleMvnOut)
 				case modules => 
-					println(<s>Deploying modules {modules.mkString(", ")} of branch {branch} to {cfg.baseDir} with flavor {cfg.flavor}</s>.text)
-					val result = for (module <- modules) 
-						yield for (moduleDir <- safeFile(s"$mhDev/modules/$module"))
-							yield Process(mvn, moduleDir).processLines(handleMvnOut)
-					// todo inspect result and return the appropriate type .fail or .success 		
-					result.success		
+					println(s"Deploying modules ${modules mkString ", "} of branch $branch to $cfg.baseDir with flavor $cfg.flavor")
+          val builtModules = 
+            (modules flatMap (module => safeFile(s"$mhDev/modules/$module").right.toOption) 
+                     takeWhile (moduleDir => Process(mvn, moduleDir).processLines(handleMvnOut) == 0))                  
+          if (builtModules.size == modules.size) 
+            "All modules built successfully".success 
+          else 
+            "Build abandoned due to failed module build".fail
 			}
 		}
 	}
@@ -140,7 +143,7 @@ object Deploy {
       +++ allProfilesAsMvnArg
       +++ opts.additionalOpts)
     println("executing: " + mvn)
-    runInDevHandled(mvn)
+    runInDevHandled(mvn)(handleMvnOut)
 	}
 	
 	/** Handle command "javadoc". */
@@ -156,6 +159,15 @@ object Deploy {
 			cp2 <- runInDevSimple(s"cp -R $mhDev/bin/ ${cfg.baseDir}/felix/bin/")
 		} yield
 			cp2
+  
+  /** Handle command "lastmodified" */   
+  def cmdLastModified(opts: Opts) = {
+    val Module = """^.*?\bmodules/(.*?)/.*""".r
+    val modules = for (Module(m) <- processInDev("git status --porcelain").lines) yield m
+    println(s"""-m "${modules.distinct.mkString(",")}"""")
+    true.success
+  }
+  
 
 	/* Helper functions
 	 * ---------------- */
@@ -190,7 +202,7 @@ object Deploy {
   }
 
   /** Run `cmd` in development directory using handler `f` to process the output. */
-  def runInDevHandled(cmd: String): Valid[Int] = processInDev(cmd).processLines(handleMvnOut) |> handleExitValue
+  def runInDevHandled(cmd: String)(f: String => Boolean): Valid[Int] = processInDev(cmd).processLines(f) |> handleExitValue
 	
 	/** Run `cmd` in development directory, print all its output to the console and return the exit value. */
 	def runInDevSimple(cmd: String): Valid[Int] = processInDev(cmd) ! ProcessLogger(a => println(a)) |> handleExitValue
@@ -296,6 +308,7 @@ object Deploy {
 							 |jrebel               generate rebel.xml for each module of the project
 							 |javadoc              generate javadoc
 							 |deployconfig         copy 1.4 config from development to deployment directory
+               |lastmodified         print a list of last modified modules
 	             |""".stripMargin
   
   def parseCmdLine(opts: Opts, cmdline: List[String]): Opts = {
