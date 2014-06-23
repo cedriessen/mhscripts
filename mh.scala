@@ -19,12 +19,23 @@ object Deploy {
 	
 	/* Base config 
 	 * ----------- */
+  
+  // directory structure
+  // -------------------
+  // $mhVersion/$version/felix
+  // 
+  // $mhVersion=absolute_base_path
+  // $version=path_element
+  // 
+  // $mhVersion/$version must contain the "version.cfg"
 	
 	val mhHome = "/Users/ced/dev/mh"
 	val mhVersions = mhHome + "/versions"
 	val mhDev = mhHome + "/matterhorn"
 	val mhDevFile = new File(mhDev)
 	val versionCfgFile = "version.cfg"
+
+  val vagrantTarget = "/Users/ced/dev/mh/systems/vagrant/share/matterhorn"
 	
 	/* Types 
 	 * ----- */
@@ -56,6 +67,7 @@ object Deploy {
     // dispatch commands
 		val result: Valid[Any] = opts.command match {
 			case Some("deploy") => cmdDeploy(opts)
+      case Some("vagrantdeploy") => cmdVagrantDeploy(opts)
 			case Some("allprofiles") => cmdBuildAllProfiles(opts)
 			case Some("test") => cmdIntegrationTest(opts)
 			case Some("jrebel") => cmdJrebel(opts)
@@ -125,6 +137,44 @@ object Deploy {
 			}
 		}
 	}
+  
+  def cmdVagrantDeploy(opts: Opts) = {
+    // todo Copy pasted from cmdDeploy. Better share some code!
+  	// get the current branch name
+		val branch = Process("git branch", mhDevFile).lines.filter(_.startsWith("*")).head.drop(2)		
+		val commit = Process("git rev-parse --short head", mhDevFile).lines.head.trim
+		// get the current db version or use "?"
+		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile)
+		  .lines.headOption.map(_.trim).getOrElse("?")
+		// run maven
+    import CmdLineBuilder._
+    val mvn: CmdLine = ("mvn"
+      ++? (opts.clean, "clean")
+      +++ "install"
+      +++ (opts.test map mvnOptTest)
+      +++ (opts.checkStyle map mvnOptCheckstyle)
+      +++ s"-DdeployTo=$vagrantTarget"
+      +++ s"-Dbuild.number=$commit"
+      +++ s"-Dmh.db.version=$dbVersion"
+      +++ opts.additionalOpts)
+    println(<s>     opts: {opts}
+              |executing: {mvn}</s>.text.stripMargin)
+    // run maven
+    opts.modules match {
+      case Nil => // no modules -> deploy all
+        println(s"Full deployment of branch $branch to $vagrantTarget")
+        runInDevHandled(mvn)(handleMvnOut)
+      case modules =>
+        println(s"Deploying modules ${modules mkString ", "} of branch $branch to $vagrantTarget")
+        val builtModules =
+          (modules flatMap (module => safeFile(s"$mhDev/modules/$module").right.toOption)
+                   takeWhile (moduleDir => Process(mvn, moduleDir).processLines(handleMvnOut) == 0))
+        if (builtModules.size == modules.size)
+          "All modules built successfully".success
+        else
+          ErrExec("Build abandoned due to failed module build").fail
+    }
+  }
 
 	/** Handle command "jrebel". */
 	def cmdJrebel(opts: Opts) = runInDevSimple(s"mvn jrebel:generate -Drebel.xml.dir=src/main/resources -Drebel.generate.show=true $allProfilesAsMvnArg")
@@ -289,13 +339,16 @@ object Deploy {
 		clean: Boolean = false,
 		version: Option[String] = None)
 		
-	def help = """deploy               build and deploy
+	def help = s"""deploy               build and deploy
 	             |  -v <version>       target dir name
 	             |  [-m <module>,...]  modules, comma separated list
 	             |  [-p <mvn_params>]  additional mvn parameters
 	             |  [--nocheck|-C]     no checkstyle
 	             |  [--notest|-T]      no unit tests
 	             |  [-c]               clean
+               |
+               |vagrantdeploy        deploy to shared Vagrant directory
+               |                     $vagrantTarget
 	             |
 	             |test                 run server integration test
 	             |
