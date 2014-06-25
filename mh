@@ -1,2 +1,2 @@
 #!/bin/sh
-/bin/bash mh.scala
+/bin/bash mh.scala $@
