@@ -41,8 +41,8 @@ object Deploy {
 	 * ----- */
 	
 	sealed trait Flavor
-	final case object V14 extends Flavor
-	final case object V13 extends Flavor
+	case object V14 extends Flavor
+	case object V13 extends Flavor
 		
 	sealed abstract class Err(val msg: String)
 	final case class ErrParam(override val msg: String) extends Err(msg)
