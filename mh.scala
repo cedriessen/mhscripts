@@ -155,7 +155,18 @@ object Deploy {
     // todo Copy pasted from cmdDeploy. Better share some code!
   	// get the current branch name
 		val branch = Process("git branch", mhDevFile).lineStream.filter(_.startsWith("*")).head.drop(2)
-		val commit = Process("git rev-parse --short head", mhDevFile).lineStream.head.trim
+		val buildNumber = {
+			val commit = Process("git rev-parse --short head", mhDevFile).lineStream.head.trim
+			Process("git status --porcelain --untracked-files=no").lineStream.isEmpty match {
+				case true => commit
+				case false =>
+					val date = (new Date).toString map {
+						case c if c.isLetterOrDigit => c
+						case _ => '-'
+					}
+					s"$commit-$date"
+			}
+		}
 		// get the current db version or use "?"
 		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile)
 		  .lineStream.headOption.map(_.trim).getOrElse("?")
@@ -167,7 +178,7 @@ object Deploy {
       +++ (opts.test map mvnOptTest)
       +++ (opts.checkStyle map mvnOptCheckstyle)
       +++ s"-DdeployTo=$vagrantTarget"
-      +++ s"-Dbuild.number=$commit"
+      +++ s"-Dbuild.number=$buildNumber"
       +++ s"-Dmh.db.version=$dbVersion"
       +++ opts.additionalOpts)
     println(<s>     opts: {opts}
