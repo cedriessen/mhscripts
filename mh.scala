@@ -4,19 +4,18 @@
 # updated to run under Scala 2.11.2
 exec scala -feature -language:implicitConversions -save -deprecation "$0" "$@"
 !#
-import java.io.File
-import java.io.InputStream
+import java.io.{File, InputStream}
 import java.util.Date
+
 import scala.io.Source
 import scala.sys.process._
-import scala.xml.NodeSeq
-import scala.xml.XML
 import scala.util._
+import scala.xml.{NodeSeq, XML}
 
 object Deploy {
 	import EitherImplicits._
-	import ProcessImplicits._
 	import Pipe._
+	import ProcessImplicits._
 	import Trial._
 
 	/* Base config
@@ -96,19 +95,7 @@ object Deploy {
 	/** Handle command "deploy". */
 	def cmdDeploy(opts: Opts) = {
 		// get the current branch name
-		val branch = Process("git branch", mhDevFile).lineStream.filter(_.startsWith("*")).head.drop(2)
-		val buildNumber = {
-			val commit = Process("git rev-parse --short head", mhDevFile).lineStream.head.trim
-			Process("git status --porcelain --untracked-files=no").lineStream.isEmpty match {
-				case true => commit
-				case false =>
-					val date = (new Date).toString map {
-						case c if c.isLetterOrDigit => c
-						case _ => '-'
-					}
-					s"$commit-$date"
-			}
-		}
+		val branch = getCurrentDevBranch
 		// get the current db version or use "?"
 		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile)
 		  .lineStream.headOption.map(_.trim).getOrElse("?")
@@ -154,19 +141,7 @@ object Deploy {
   def cmdVagrantDeploy(opts: Opts) = {
     // todo Copy pasted from cmdDeploy. Better share some code!
   	// get the current branch name
-		val branch = Process("git branch", mhDevFile).lineStream.filter(_.startsWith("*")).head.drop(2)
-		val buildNumber = {
-			val commit = Process("git rev-parse --short head", mhDevFile).lineStream.head.trim
-			Process("git status --porcelain --untracked-files=no").lineStream.isEmpty match {
-				case true => commit
-				case false =>
-					val date = (new Date).toString map {
-						case c if c.isLetterOrDigit => c
-						case _ => '-'
-					}
-					s"$commit-$date"
-			}
-		}
+		val branch = getCurrentDevBranch
 		// get the current db version or use "?"
 		val dbVersion = Process("git log -1 --format=%ad_%h --date=short -- modules/matterhorn-db/src/main/resources/mysql5.sql", mhDevFile)
 		  .lineStream.headOption.map(_.trim).getOrElse("?")
@@ -246,7 +221,24 @@ object Deploy {
 	/* Helper functions
 	 * ---------------- */
 
-	def mvnOptCheckstyle(enable: Boolean) = s"-Dcheckstyle.skip=${!enable}"
+  /** Get the current development branch name. */
+  def getCurrentDevBranch = Process("git branch", mhDevFile).lineStream.filter(_.startsWith("*")).head.drop(2)
+
+  /** Calc the build number. */
+  def buildNumber = {
+    val commit = Process("git rev-parse --short head", mhDevFile).lineStream.head.trim
+    Process("git status --porcelain --untracked-files=no", mhDevFile).lineStream.isEmpty match {
+      case true => commit
+      case false =>
+        val date = (new Date).toString map {
+          case c if c.isLetterOrDigit => c
+          case _ => '-'
+        }
+        s"$commit-$date"
+    }
+  }
+
+  def mvnOptCheckstyle(enable: Boolean) = s"-Dcheckstyle.skip=${!enable}"
 
 	def mvnOptTest(enable: Boolean) = s"-Dmaven.test.skip=${!enable}"
 
